@@ -190,6 +190,15 @@ services:
     networks:
       - techmage-network
     restart: unless-stopped
+    # Ограничения ресурсов для стабильной работы
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
     profiles:
       - production
 
@@ -228,6 +237,15 @@ services:
     networks:
       - techmage-network
     restart: unless-stopped
+    # Ограничения ресурсов для стабильной работы
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
     profiles:
       - production
 

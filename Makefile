@@ -89,6 +89,8 @@ dev-shell: ## Подключиться к контейнеру backend для р
 
 prod-up: ## Запустить все сервисы в production режиме
 	@echo "$(GREEN)🚀 Запуск TechMage NX в production режиме...$(NC)"
+	@echo "$(YELLOW)🧹 Очистка Docker кэша перед запуском...$(NC)"
+	@docker system prune -f
 	@docker-compose --profile production up -d
 	@echo "$(GREEN)✅ Все сервисы запущены в production!$(NC)"
 	@echo ""
@@ -115,6 +117,10 @@ prod-logs: ## Показать логи всех production сервисов
 
 prod-build: ## Пересобрать все production образы
 	@echo "$(YELLOW)🔨 Пересборка production образов...$(NC)"
+	@echo "$(YELLOW)🧹 Очистка Docker кэша...$(NC)"
+	@docker system prune -f
+	@docker builder prune -f
+	@echo "$(YELLOW)🔨 Сборка production образов...$(NC)"
 	@docker-compose --profile production build --no-cache
 	@echo "$(GREEN)✅ Production образы пересобраны$(NC)"
 
