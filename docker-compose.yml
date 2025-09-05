@@ -1,0 +1,244 @@
+
+services:
+  # База данных PostgreSQL
+  postgres:
+    image: postgres:17-alpine
+    container_name: techmage-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ciel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ciel}
+      POSTGRES_DB: ${POSTGRES_DB:-techmage}
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./applications/techmage-backend/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    networks:
+      - techmage-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ciel} -d ${POSTGRES_DB:-techmage}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis для кэширования
+  redis:
+    image: redis:7-alpine
+    container_name: techmage-redis
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis-data:/data
+    networks:
+      - techmage-network
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+  # MinIO для хранения файлов
+  minio:
+    image: minio/minio:latest
+    container_name: techmage-minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - minio-data:/data
+    networks:
+      - techmage-network
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # Backend API (Development)
+  backend:
+    build:
+      context: ./applications/techmage-backend
+      dockerfile: Dockerfile
+    container_name: techmage-backend
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - PORT=${PORT:-4000}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-ciel}:${POSTGRES_PASSWORD:-ciel}@postgres:5432/${POSTGRES_DB:-techmage}
+      - REDIS_URL=redis://redis:6379
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_PUBLIC_URL=http://localhost:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME:-techmage-images}
+      - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID}
+      - DISCORD_SECRET=${DISCORD_SECRET}
+      - DISCORD_REDIRECT_URI=${DISCORD_REDIRECT_URI}
+      - X_CLIENT_ID=${X_CLIENT_ID}
+      - X_SECRET=${X_SECRET}
+      - X_REDIRECT_URI=${X_REDIRECT_URI}
+      - X_BEARER_TOKEN=${X_BEARER_TOKEN}
+      - X_ACCESS_TOKEN=${X_ACCESS_TOKEN}
+      - X_ACCESS_TOKEN_SECRET=${X_ACCESS_TOKEN_SECRET}
+    ports:
+      - '4000:4000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      minio:
+        condition: service_started
+    networks:
+      - techmage-network
+    restart: unless-stopped
+    volumes:
+      - ./applications/techmage-backend/logs:/app/logs
+    command: >
+      sh -c "
+        echo 'Waiting for database...' &&
+        bunx prisma migrate deploy --schema=./src/database/prisma/schema.prisma &&
+        echo 'Starting backend application...' &&
+        bun run start
+      "
+    profiles:
+      - development
+
+  # Backend API (Production)
+  backend-prod:
+    build:
+      context: ./applications/techmage-backend
+      dockerfile: Dockerfile
+    container_name: techmage-backend-prod
+    environment:
+      - NODE_ENV=production
+      - PORT=${PORT:-4000}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-ciel}:${POSTGRES_PASSWORD:-ciel}@postgres:5432/${POSTGRES_DB:-techmage}
+      - REDIS_URL=redis://redis:6379
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_PUBLIC_URL=http://localhost:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME:-techmage-images}
+      - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID}
+      - DISCORD_SECRET=${DISCORD_SECRET}
+      - DISCORD_REDIRECT_URI=${DISCORD_REDIRECT_URI}
+      - X_CLIENT_ID=${X_CLIENT_ID}
+      - X_SECRET=${X_SECRET}
+      - X_REDIRECT_URI=${X_REDIRECT_URI}
+      - X_BEARER_TOKEN=${X_BEARER_TOKEN}
+      - X_ACCESS_TOKEN=${X_ACCESS_TOKEN}
+      - X_ACCESS_TOKEN_SECRET=${X_ACCESS_TOKEN_SECRET}
+    ports:
+      - '4000:4000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      minio:
+        condition: service_started
+    networks:
+      - techmage-network
+    restart: unless-stopped
+    volumes:
+      - ./applications/techmage-backend/logs:/app/logs
+    command: >
+      sh -c "
+        echo 'Waiting for database...' &&
+        bunx prisma migrate deploy --schema=./src/database/prisma/schema.prisma &&
+        echo 'Starting production backend application...' &&
+        bun run start
+      "
+    profiles:
+      - production
+
+  # Frontend приложение (Development)
+  frontend:
+    build:
+      context: ./applications/techmage-front
+      dockerfile: Dockerfile
+    container_name: techmage-frontend
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+    ports:
+      - '3000:3000'
+    depends_on:
+      - backend
+    networks:
+      - techmage-network
+    restart: unless-stopped
+    profiles:
+      - development
+
+  # Frontend приложение (Production)
+  frontend-prod:
+    build:
+      context: ./applications/techmage-front
+      dockerfile: Dockerfile
+    container_name: techmage-frontend-prod
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+    ports:
+      - '3000:3000'
+    depends_on:
+      - backend-prod
+    networks:
+      - techmage-network
+    restart: unless-stopped
+    profiles:
+      - production
+
+  # Admin панель (Development)
+  admin:
+    build:
+      context: ./applications/techmage-admin
+      dockerfile: Dockerfile
+    container_name: techmage-admin
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+    ports:
+      - '3001:3000'
+    depends_on:
+      - backend
+    networks:
+      - techmage-network
+    restart: unless-stopped
+    profiles:
+      - development
+
+  # Admin панель (Production)
+  admin-prod:
+    build:
+      context: ./applications/techmage-admin
+      dockerfile: Dockerfile
+    container_name: techmage-admin-prod
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+    ports:
+      - '3001:3000'
+    depends_on:
+      - backend-prod
+    networks:
+      - techmage-network
+    restart: unless-stopped
+    profiles:
+      - production
+
+networks:
+  techmage-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  minio-data:
+    driver: local

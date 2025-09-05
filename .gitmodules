@@ -1,0 +1,9 @@
+[submodule "techmage-front"]
+    path = applications/techmage-front
+    url = git@github.com:wr479/techMage.git
+[submodule "techmage-backend"]
+    path = applications/techmage-backend
+    url = git@github.com:faes763/TechMage_Backend.git
+[submodule "techmage-admin"]
+    path = applications/techmage-admin
+    url = git@github.com:wr479/techMageAdmin.git
