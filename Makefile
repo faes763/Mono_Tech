@@ -12,11 +12,23 @@ help: ## Показать справку по командам
 	@echo "$(GREEN)TechMage NX - Команды управления$(NC)"
 	@echo ""
 	@echo "$(YELLOW)Основные команды:$(NC)"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(GREEN)%-15s$(NC) %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(GREEN)%-20s$(NC) %s\n", $$1, $$2}'
+	@echo ""
+	@echo "$(YELLOW)📚 Документация:$(NC)"
+	@echo "  $(GREEN)DATABASE_MIGRATIONS.md$(NC) - Работа с миграциями"
+	@echo "  $(GREEN)DOCKER_OPTIMIZATION.md$(NC) - Оптимизация Docker сборки"
 
 check: ## Проверить готовность системы к запуску
 	@echo "$(GREEN)🔍 Проверка готовности системы...$(NC)"
 	@./check-setup.sh
+
+docs-migrations: ## Показать документацию по миграциям
+	@echo "$(GREEN)📚 Документация по миграциям базы данных:$(NC)"
+	@cat DATABASE_MIGRATIONS.md
+
+docs-docker: ## Показать документацию по оптимизации Docker
+	@echo "$(GREEN)📚 Документация по оптимизации Docker:$(NC)"
+	@cat DOCKER_OPTIMIZATION.md
 
 dev-up: ## Запустить все сервисы в development режиме
 	@echo "$(GREEN)🚀 Запуск TechMage NX в development режиме...$(NC)"
@@ -45,9 +57,14 @@ dev-logs: ## Показать логи всех development сервисов
 	@docker-compose --profile development logs -f
 
 dev-build: ## Пересобрать все development образы
-	@echo "$(YELLOW)🔨 Пересборка development образов...$(NC)"
-	@docker-compose --profile development build --no-cache
+	@echo "$(YELLOW)🔨 Пересборка development образов с BuildKit кэшированием...$(NC)"
+	@export $(cat docker.env | xargs) && docker-compose --profile development build
 	@echo "$(GREEN)✅ Development образы пересобраны$(NC)"
+
+dev-build-fast: ## Быстрая пересборка development образов (только измененные слои)
+	@echo "$(YELLOW)⚡ Быстрая пересборка development образов...$(NC)"
+	@export $(cat docker.env | xargs) && docker-compose --profile development build --parallel
+	@echo "$(GREEN)✅ Development образы быстро пересобраны$(NC)"
 
 dev-clean: ## Полная очистка development (остановка + удаление контейнеров, сетей, томов)
 	@echo "$(RED)🧹 Полная очистка development Docker...$(NC)"
@@ -75,13 +92,78 @@ db-migrate: ## Выполнить миграции базы данных
 	@docker-compose exec backend bunx prisma migrate deploy --schema=./src/database/prisma/schema.prisma
 	@echo "$(GREEN)✅ Миграции выполнены$(NC)"
 
+db-migrate-dev: ## Выполнить миграции в development контейнере
+	@echo "$(YELLOW)🗄️ Выполнение миграций в development...$(NC)"
+	@docker-compose --profile development exec backend bunx prisma migrate deploy --schema=./src/database/prisma/schema.prisma
+	@echo "$(GREEN)✅ Development миграции выполнены$(NC)"
+
+db-migrate-prod: ## Выполнить миграции в production контейнере
+	@echo "$(YELLOW)🗄️ Выполнение миграций в production...$(NC)"
+	@docker-compose --profile production exec backend-prod bunx prisma migrate deploy --schema=./src/database/prisma/schema.prisma
+	@echo "$(GREEN)✅ Production миграции выполнены$(NC)"
+
+db-migrate-create: ## Создать новую миграцию (введите MIGRATION_NAME=название)
+	@echo "$(YELLOW)📝 Создание новой миграции: $(MIGRATION_NAME)...$(NC)"
+	@docker-compose exec backend bunx prisma migrate dev --name $(MIGRATION_NAME) --schema=./src/database/prisma/schema.prisma
+	@echo "$(GREEN)✅ Миграция $(MIGRATION_NAME) создана$(NC)"
+
+db-migrate-reset: ## Сбросить базу данных и применить все миграции
+	@echo "$(RED)⚠️ Сброс базы данных и применение миграций...$(NC)"
+	@docker-compose exec backend bunx prisma migrate reset --force --schema=./src/database/prisma/schema.prisma
+	@echo "$(GREEN)✅ База данных сброшена и миграции применены$(NC)"
+
+db-migrate-status: ## Показать статус миграций
+	@echo "$(GREEN)📊 Статус миграций:$(NC)"
+	@docker-compose exec backend bunx prisma migrate status --schema=./src/database/prisma/schema.prisma
+
 db-studio: ## Открыть Prisma Studio
 	@echo "$(GREEN)🔍 Запуск Prisma Studio...$(NC)"
 	@docker-compose exec backend bunx prisma studio --schema=./src/database/prisma/schema.prisma
 
+db-studio-prod: ## Открыть Prisma Studio для production
+	@echo "$(GREEN)🔍 Запуск Prisma Studio для production...$(NC)"
+	@docker-compose --profile production exec backend-prod bunx prisma studio --schema=./src/database/prisma/schema.prisma
+
+# Дополнительные команды для базы данных
+db-generate: ## Сгенерировать Prisma клиент
+	@echo "$(YELLOW)🔧 Генерация Prisma клиента...$(NC)"
+	@docker-compose exec backend bunx prisma generate --schema=./src/database/prisma/schema.prisma
+	@echo "$(GREEN)✅ Prisma клиент сгенерирован$(NC)"
+
+db-push: ## Применить изменения схемы к базе данных (без миграций)
+	@echo "$(YELLOW)📤 Применение изменений схемы к базе данных...$(NC)"
+	@docker-compose exec backend bunx prisma db push --schema=./src/database/prisma/schema.prisma
+	@echo "$(GREEN)✅ Изменения схемы применены$(NC)"
+
+db-pull: ## Извлечь схему из существующей базы данных
+	@echo "$(YELLOW)📥 Извлечение схемы из базы данных...$(NC)"
+	@docker-compose exec backend bunx prisma db pull --schema=./src/database/prisma/schema.prisma
+	@echo "$(GREEN)✅ Схема извлечена$(NC)"
+
+db-seed: ## Заполнить базу данных тестовыми данными
+	@echo "$(YELLOW)🌱 Заполнение базы данных тестовыми данными...$(NC)"
+	@docker-compose exec backend bun run seed
+	@echo "$(GREEN)✅ База данных заполнена тестовыми данными$(NC)"
+
+db-backup: ## Создать резервную копию базы данных
+	@echo "$(YELLOW)💾 Создание резервной копии базы данных...$(NC)"
+	@docker-compose exec postgres pg_dump -U ${POSTGRES_USER:-ciel} -d ${POSTGRES_DB:-techmage} > backup_$(shell date +%Y%m%d_%H%M%S).sql
+	@echo "$(GREEN)✅ Резервная копия создана$(NC)"
+
+db-restore: ## Восстановить базу данных из резервной копии (введите BACKUP_FILE=файл.sql)
+	@echo "$(YELLOW)🔄 Восстановление базы данных из $(BACKUP_FILE)...$(NC)"
+	@docker-compose exec -T postgres psql -U ${POSTGRES_USER:-ciel} -d ${POSTGRES_DB:-techmage} < $(BACKUP_FILE)
+	@echo "$(GREEN)✅ База данных восстановлена$(NC)"
+
 # Команды для разработки
 dev-shell: ## Подключиться к контейнеру backend для разработки
 	@docker-compose exec backend sh
+
+dev-shell-prod: ## Подключиться к production контейнеру backend
+	@docker-compose --profile production exec backend-prod sh
+
+dev-shell-db: ## Подключиться к контейнеру PostgreSQL
+	@docker-compose exec postgres psql -U ${POSTGRES_USER:-ciel} -d ${POSTGRES_DB:-techmage}
 
 # ===========================================
 # PRODUCTION КОМАНДЫ
@@ -139,25 +221,30 @@ prod-logs: ## Показать логи всех production сервисов
 	@docker-compose --profile production logs -f
 
 prod-build: ## Пересобрать все production образы
-	@echo "$(YELLOW)🔨 Пересборка production образов...$(NC)"
+	@echo "$(YELLOW)🔨 Пересборка production образов с BuildKit кэшированием...$(NC)"
 	@echo "$(YELLOW)🧹 Очистка Docker кэша...$(NC)"
 	@docker system prune -f
 	@docker builder prune -f
 	@echo "$(YELLOW)🔨 Сборка production образов...$(NC)"
-	@docker-compose --profile production build --no-cache
+	@export $(cat docker.env | xargs) && docker-compose --profile production build
 	@echo "$(GREEN)✅ Production образы пересобраны$(NC)"
 
+prod-build-fast: ## Быстрая пересборка production образов (только измененные слои)
+	@echo "$(YELLOW)⚡ Быстрая пересборка production образов...$(NC)"
+	@export $(cat docker.env | xargs) && docker-compose --profile production build --parallel
+	@echo "$(GREEN)✅ Production образы быстро пересобраны$(NC)"
+
 prod-build-sequential: ## Пересобрать production образы последовательно (для маломощных систем)
-	@echo "$(YELLOW)🔨 Последовательная сборка production образов...$(NC)"
+	@echo "$(YELLOW)🔨 Последовательная сборка production образов с BuildKit...$(NC)"
 	@echo "$(YELLOW)🧹 Очистка Docker кэша...$(NC)"
 	@docker system prune -f
 	@docker builder prune -f
 	@echo "$(YELLOW)🔨 Сборка backend...$(NC)"
-	@docker-compose build backend-prod --no-cache
+	@export $(cat docker.env | xargs) && docker-compose build backend-prod
 	@echo "$(YELLOW)🔨 Сборка frontend...$(NC)"
-	@docker-compose build frontend-prod --no-cache
+	@export $(cat docker.env | xargs) && docker-compose build frontend-prod
 	@echo "$(YELLOW)🔨 Сборка admin...$(NC)"
-	@docker-compose build admin-prod --no-cache
+	@export $(cat docker.env | xargs) && docker-compose build admin-prod
 	@echo "$(GREEN)✅ Все production образы пересобраны последовательно$(NC)"
 
 prod-clean: ## Полная очистка production (остановка + удаление контейнеров, сетей, томов)
@@ -169,6 +256,20 @@ prod-clean: ## Полная очистка production (остановка + уд
 prod-status: ## Показать статус всех production сервисов
 	@echo "$(GREEN)📊 Статус production сервисов:$(NC)"
 	@docker-compose --profile production ps
+
+# Управление кэшем
+cache-clean: ## Очистить все Docker кэши
+	@echo "$(YELLOW)🧹 Очистка всех Docker кэшей...$(NC)"
+	@docker builder prune -f
+	@docker system prune -f
+	@echo "$(GREEN)✅ Кэши очищены$(NC)"
+
+cache-inspect: ## Показать информацию о Docker кэшах
+	@echo "$(GREEN)📊 Информация о Docker кэшах:$(NC)"
+	@docker system df
+	@echo ""
+	@echo "$(YELLOW)BuildKit кэши:$(NC)"
+	@docker buildx du
 
 # Проверка здоровья сервисов
 health: ## Проверить здоровье всех сервисов
